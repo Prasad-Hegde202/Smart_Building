@@ -1,0 +1,34 @@
+# ── Frontend ─────────────────────────────
+# node_modules/
+# build/
+# dist/
+
+# ── Python ───────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+env/
+venv/
+
+# ── Database ─────────────────────────────
+*.db
+*.sqlite3
+
+# ── ML / Data Files ──────────────────────
+*.pkl
+*.h5
+*.pt
+*.csv
+*.zip
+*.tar
+
+# ── Secrets ──────────────────────────────
+firebase-key.json
+.env
+
+# ── OS / Misc ────────────────────────────
+.DS_Store
+Thumbs.db
