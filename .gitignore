@@ -18,6 +18,7 @@ venv/
 *.sqlite3
 
 # ── ML / Data Files ──────────────────────
+
 *.pkl
 *.h5
 *.pt
