@@ -3,6 +3,7 @@ Flask Backend — Smart Building NILM
 =====================================
 Clean API only — no frontend, no HTML.
 Hybrid database: SQLite (local) + Firebase (cloud)
+Models: auto-downloaded from Google Drive on first run
 
 Endpoints:
   GET  /health    → server status check
@@ -20,6 +21,7 @@ import joblib
 import os
 import sqlite3
 import json
+import requests
 from datetime import datetime, timezone, timedelta
 from collections import deque
 
@@ -41,6 +43,72 @@ TARIFF         = 7.35
 WINDOW_SIZE    = 15
 reading_window = deque(maxlen=WINDOW_SIZE)
 history        = deque(maxlen=20)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODEL DOWNLOAD FROM GOOGLE DRIVE
+# ══════════════════════════════════════════════════════════════════════════════
+
+MODEL_URLS = {
+    "appliance_labels.pkl" : "https://drive.google.com/uc?export=download&id=1Kyn6KIQFBVMPFz6Ao7yFYiF92_1zcV2k",
+    "cutoffs.pkl"          : "https://drive.google.com/uc?export=download&id=1jKu60Q-QBLdfsqPY2jqodCDk_yawUPuB",
+    "max_powers.pkl"       : "https://drive.google.com/uc?export=download&id=1v27kUU3YvLSlEvnfZ1vxrZGagWTp8vPR",
+    "rf_Appliance2.pkl"    : "https://drive.google.com/uc?export=download&id=1tZ3mF-FqJgyG3h1HNnKwzTspvtXi4hbv",
+    "rf_Appliance3.pkl"    : "https://drive.google.com/uc?export=download&id=16-eh03Gk3_ve6_YiZ7i7U7mrWacZvi79",
+    "rf_Appliance6.pkl"    : "https://drive.google.com/uc?export=download&id=18LK3GzUtH7pfqL2eYRToAB9hmz0mzLzG",
+    "rf_Appliance7.pkl"    : "https://drive.google.com/uc?export=download&id=1yWqfHF2_zpIQGfg5BXMOYeAfrH1Bpcu3",
+    "thresholds.pkl"       : "https://drive.google.com/uc?export=download&id=1nc4AFPNpRUsaYmJfe7wh8TExl3JukSG2",
+}
+
+def download_model(url, path):
+    """Download a model file from Google Drive if not already present."""
+    if os.path.exists(path):
+        print(f"  ✓ Found: {os.path.basename(path)}")
+        return
+    print(f"  ⬇ Downloading: {os.path.basename(path)} ...")
+    try:
+        session  = requests.Session()
+        response = session.get(url, stream=True, timeout=60)
+
+        # Handle Google Drive large file confirmation page
+        for key, value in response.cookies.items():
+            if key.startswith("download_warning"):
+                params   = {"confirm": value, "id": url.split("id=")[-1]}
+                response = session.get(
+                    "https://drive.google.com/uc?export=download",
+                    params=params, stream=True, timeout=60
+                )
+                break
+
+        with open(path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=32768):
+                if chunk:
+                    f.write(chunk)
+
+        size_mb = os.path.getsize(path) / (1024 * 1024)
+        print(f"  ✅ Downloaded: {os.path.basename(path)} ({size_mb:.1f} MB)")
+
+    except Exception as e:
+        print(f"  ❌ Failed to download {os.path.basename(path)}: {e}")
+
+
+def download_all_models():
+    """Ensure all model files exist — download missing ones."""
+    os.makedirs(MODEL_PATH, exist_ok=True)
+    print("\n  Checking model files...")
+    for filename, url in MODEL_URLS.items():
+        path = os.path.join(MODEL_PATH, filename)
+        download_model(url, path)
+    print("  Model check complete.\n")
+
+# ── Download models in background thread — server starts immediately ──────────
+import threading
+def _download_then_load():
+    download_all_models()
+    global LABELS, MAX_POWERS, CUTOFFS, MODELS
+    LABELS, MAX_POWERS, CUTOFFS, MODELS = load_models()
+    print("  ✅ Models ready — background download complete")
+
+threading.Thread(target=_download_then_load, daemon=True).start()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATABASE — SQLITE (LOCAL BACKUP)
@@ -137,11 +205,9 @@ except Exception as e:
 
 
 def save_to_firebase(result):
-    """Save to Firebase. Silently skips if unavailable."""
     if not FIREBASE_OK or db_firestore is None:
         return
     try:
-        # json round-trip removes any non-serializable types
         clean = json.loads(json.dumps(result))
         db_firestore.collection("predictions").add(clean)
     except Exception as e:
@@ -149,7 +215,6 @@ def save_to_firebase(result):
 
 
 def get_from_firebase(limit=50):
-    """Read from Firebase. Returns empty list if unavailable."""
     if not FIREBASE_OK or db_firestore is None:
         return []
     try:
@@ -163,7 +228,6 @@ def get_from_firebase(limit=50):
 
 
 def get_latest_from_firebase():
-    """Get most recent doc from Firebase."""
     if not FIREBASE_OK or db_firestore is None:
         return None
     try:
@@ -183,46 +247,34 @@ def get_latest_from_firebase():
 
 def save_prediction(result):
     """Save to BOTH SQLite and Firebase simultaneously."""
-    save_to_sqlite(result)    # always runs — local backup
-    save_to_firebase(result)  # cloud — skips silently if offline
+    # Ensure timestamp_unix always exists — required for Firebase ordering
+    if "timestamp_unix" not in result:
+        result["timestamp_unix"] = int(now_ist().timestamp())
+    save_to_sqlite(result)
+    save_to_firebase(result)
 
 
 def read_history(limit=50):
-    """
-    Priority:
-      1. Firebase  (cloud, synced across devices)
-      2. SQLite    (local, always available)
-      3. In-memory (last 20, only if both DB fail)
-    """
+    """Firebase first → SQLite → in-memory."""
     data = get_from_firebase(limit)
     if data:
         return data
-
     data = get_from_sqlite(limit)
     if data:
         return data
-
     return list(history)
 
 
 def read_latest():
-    """
-    Priority:
-      1. Firebase
-      2. SQLite
-      3. In-memory
-    """
+    """Firebase first → SQLite → in-memory."""
     doc = get_latest_from_firebase()
     if doc:
         return doc
-
     rows = get_from_sqlite(1)
     if rows:
         return rows[0]
-
     if history:
         return history[0]
-
     return None
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -240,12 +292,14 @@ def load_models():
             if os.path.exists(path):
                 models[name] = joblib.load(path)
         print(f"  ✅ Loaded {len(models)} models: {list(models.keys())}")
+        print(f"  ℹ️  Labels in pkl: {list(labels)}")
         return labels, max_powers, cutoffs, models
     except Exception as e:
         print(f"  ❌ Model load error: {e}")
         return None, None, None, {}
 
-LABELS, MAX_POWERS, CUTOFFS, MODELS = load_models()
+# Models loaded by background thread above — initialise as empty until ready
+LABELS, MAX_POWERS, CUTOFFS, MODELS = None, None, None, {}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FEATURE EXTRACTION
@@ -481,6 +535,8 @@ def predict():
             window = [window[0]] * (WINDOW_SIZE - len(window)) + window
 
         result = run_prediction(np.array(window, dtype=float), timestamp)
+        if "error" in result:
+            return jsonify(result), 500
         history.appendleft(result)
         save_prediction(result)
         return jsonify(result)
@@ -505,10 +561,12 @@ def sensor():
             window = [window[0]] * (WINDOW_SIZE - len(window)) + window
 
         result = run_prediction(np.array(window, dtype=float), timestamp)
+        if "error" in result:
+            return jsonify(result), 500
         history.appendleft(result)
         save_prediction(result)
 
-        print(f"  [IoT] {watts}W → {len(result['detected'])} appliance(s) detected")
+        print(f"  [IoT] {watts}W → {len(result.get('detected', []))} appliance(s) detected")
         return jsonify({"status": "ok", "result": result})
 
     except Exception as e:
@@ -532,10 +590,12 @@ def iot():
             window = [window[0]] * (WINDOW_SIZE - len(window)) + window
 
         result = run_prediction(np.array(window, dtype=float), timestamp)
+        if "error" in result:
+            return jsonify(result), 500
         history.appendleft(result)
         save_prediction(result)
 
-        print(f"  [IoT] {watts}W → {len(result['detected'])} appliance(s) detected")
+        print(f"  [IoT] {watts}W → {len(result.get('detected', []))} appliance(s) detected")
         return jsonify({"status": "ok", "result": result})
 
     except Exception as e:
