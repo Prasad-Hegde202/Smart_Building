@@ -25,6 +25,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from collections import deque
 
+
 # ── IST Timezone ──────────────────────────────────────────────────────────────
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -176,25 +177,29 @@ db_firestore = None
 try:
     import firebase_admin
     from firebase_admin import credentials, firestore
+    import json
 
-    FIREBASE_KEY_PATH = os.path.join(os.path.dirname(__file__), "firebase-key.json")
+    firebase_json = os.environ.get("FIREBASE_KEY")
 
-    if not os.path.exists(FIREBASE_KEY_PATH):
-        raise FileNotFoundError(f"firebase-key.json not found at {FIREBASE_KEY_PATH}")
+    if firebase_json:
+        cred_dict = json.loads(firebase_json)
 
-    if not firebase_admin._apps:
-        cred = credentials.Certificate(FIREBASE_KEY_PATH)
-        firebase_admin.initialize_app(cred)
+        if not firebase_admin._apps:
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
 
-    db_firestore = firestore.client()
-    FIREBASE_OK  = True
-    print("  🔥 Firebase connected successfully")
+        db_firestore = firestore.client()
+        FIREBASE_OK  = True
+        print("🔥 Firebase connected (ENV)")
+
+    else:
+        raise Exception("FIREBASE_KEY not found in environment variables")
 
 except Exception as e:
     FIREBASE_OK  = False
     db_firestore = None
-    print(f"  ⚠️  Firebase not connected: {e}")
-    print("  ℹ️  Running with SQLite only")
+    print(f"⚠️ Firebase not connected: {e}")
+    print("ℹ️ Running with SQLite only")
 
 
 def save_to_firebase(result):
