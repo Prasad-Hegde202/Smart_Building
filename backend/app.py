@@ -25,6 +25,14 @@ import requests
 from datetime import datetime, timezone, timedelta
 from collections import deque
 
+# ================== CUSTOM CLASS (ADD HERE) ==================
+class KettleSpikeDetector:
+    def __init__(self):
+        pass
+
+    def transform(self, X):
+        return X
+
 
 # ── IST Timezone ──────────────────────────────────────────────────────────────
 IST = timezone(timedelta(hours=5, minutes=30))
