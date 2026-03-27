@@ -100,15 +100,8 @@ def download_all_models():
         download_model(url, path)
     print("  Model check complete.\n")
 
-# ── Download models in background thread — server starts immediately ──────────
-import threading
-def _download_then_load():
-    download_all_models()
-    global LABELS, MAX_POWERS, CUTOFFS, MODELS
-    LABELS, MAX_POWERS, CUTOFFS, MODELS = load_models()
-    print("  ✅ Models ready — background download complete")
-
-threading.Thread(target=_download_then_load, daemon=True).start()
+# ── Download models now (blocking — ensures models exist before server starts) ─
+download_all_models()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATABASE — SQLITE (LOCAL BACKUP)
@@ -298,8 +291,7 @@ def load_models():
         print(f"  ❌ Model load error: {e}")
         return None, None, None, {}
 
-# Models loaded by background thread above — initialise as empty until ready
-LABELS, MAX_POWERS, CUTOFFS, MODELS = None, None, None, {}
+LABELS, MAX_POWERS, CUTOFFS, MODELS = load_models()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FEATURE EXTRACTION
