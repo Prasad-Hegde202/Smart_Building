@@ -27,11 +27,23 @@ from collections import deque
 
 # ================== CUSTOM CLASS (ADD HERE) ==================
 class KettleSpikeDetector:
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         pass
+
+    def fit(self, X, y=None):
+        return self
 
     def transform(self, X):
         return X
+
+    def predict(self, X):
+        return [0] * len(X)  # dummy output
+
+    def fit_transform(self, X, y=None):
+        return X
+
+import sys
+sys.modules['__main__'].KettleSpikeDetector = KettleSpikeDetector
 
 
 # ── IST Timezone ──────────────────────────────────────────────────────────────
@@ -190,18 +202,24 @@ try:
     firebase_json = os.environ.get("FIREBASE_KEY")
 
     if firebase_json:
+        # ✅ Render / cloud
         cred_dict = json.loads(firebase_json)
-
-        if not firebase_admin._apps:
-            cred = credentials.Certificate(cred_dict)
-            firebase_admin.initialize_app(cred)
-
-        db_firestore = firestore.client()
-        FIREBASE_OK  = True
+        cred = credentials.Certificate(cred_dict)
+        firebase_admin.initialize_app(cred)
         print("🔥 Firebase connected (ENV)")
 
     else:
-        raise Exception("FIREBASE_KEY not found in environment variables")
+        # ✅ Local fallback
+        key_path = os.path.join(os.path.dirname(__file__), "firebase-key.json")
+        if os.path.exists(key_path):
+            cred = credentials.Certificate(key_path)
+            firebase_admin.initialize_app(cred)
+            print("🔥 Firebase connected (LOCAL FILE)")
+        else:
+            raise Exception("No Firebase config found")
+
+    db_firestore = firestore.client()
+    FIREBASE_OK  = True
 
 except Exception as e:
     FIREBASE_OK  = False
