@@ -84,7 +84,7 @@ Applications:
 
 Electrical Appliances
 ↓
-Voltage & Current Sensors
+Voltage & Current Sensors i.e PZEM Board
 ↓
 ESP32 Microcontroller
 ↓
@@ -125,12 +125,11 @@ Energy Analytics & Reports
 ## IoT Hardware
 
 * ESP32
-* Current Sensors
-* Voltage Sensors
+* PZEM Board
+* CT Sensor
 
 ## Database
 
-* MongoDB
 * MySQL
 
 ## Tools
